@@ -131,17 +131,6 @@ action code {:
                                                  first.getLocation()[1]);
     }
 
-    /** Return the rightmost non-whitespace location in NODES, or null if
-     *  NODES is empty.  Assumes that the nodes of NODES are ordered in
-     *  increasing order of location, from left to right. */
-    ComplexSymbolFactory.Location getRight(List<? extends Node> nodes) {
-        if (nodes.isEmpty()) {
-            return null;
-        }
-        Node last = nodes.get(nodes.size() - 1);
-        return new ComplexSymbolFactory.Location(last.getLocation()[2],
-                                                 last.getLocation()[3]);
-    }
 :}
 
 /* Terminal symbols (tokens returned by the lexer).  The declaration
@@ -155,7 +144,41 @@ action code {:
  */
 terminal NEWLINE;
 terminal String PLUS; 
-terminal Integer NUMBER; 
+terminal String DOT;
+terminal Integer NUMBER;
+terminal String DEF;
+terminal String TIMES;
+terminal String EQUALS;
+terminal String EQEQ;
+terminal String NOTEQ;
+terminal String LT;
+terminal String LTEQ;
+terminal String GT;
+terminal String GTEQ;
+terminal String COLON;
+terminal String COMMA;
+terminal String LBRACKET;
+terminal String RBRACKET;
+terminal String SEMI;
+terminal String MINUS;
+terminal String TIMES;
+terminal String DIVIDE;
+terminal String MOD;
+terminal String LPAREN;
+terminal String RPAREN;
+terminal String WHILE;
+terminal String IF;
+terminal String NOT;
+terminal String ELIF;
+terminal String ELSE;
+terminal String FOR;
+terminal String NONLOCAL;
+terminal String GLOBAL;
+terminal String NONE;
+terminal String OBJECT;
+terminal String SELF;
+terminal String BAR;
+terminal String RETURN;
 /* Returned by the lexer for erroneous tokens.  Since it does not appear in
  * the grammar, it indicates a syntax error. */
 terminal UNRECOGNIZED;   
@@ -170,6 +193,25 @@ non terminal List<Declaration> program_head;
 non terminal List<Stmt>        stmt_list, opt_stmt_list;
 non terminal Stmt              stmt, expr_stmt;
 non terminal Expr              expr, binary_expr;
+non terminal Node              node;
+non terminal TypeAnnotation    type_annotation;
+non terminal ListType          list_type;
+non terminal IfExpr            if_expr;
+non terminal Declaration       declaration;
+non terminal GlobalDecl        global_decl;
+non terminal NonLocalDecl      nonlocal_decl;
+non terminal VarDef            var_def;
+non terminal CallExpr          call_expr;
+non terminal Return            return;
+non terminal MemberExpr        member_expr;
+non terminal WhileStmt         while_stmt;
+non terminal ForStmt           for_stmt;
+non terminal Identifier        identifier;
+non terminal ClassType         class_type;
+non terminal StringLiteral     string_literal;
+non terminal BooleanLiteral    boolean_literal;
+non terminal NoneLiteral       none_literal;
+non terminal UnaryExpr         unary_expr;
 
 /* Precedences (lowest to highest) for resolving what would otherwise be
  * ambiguities in the form of shift/reduce conflicts.. */
@@ -178,48 +220,228 @@ precedence left PLUS;
 /* The start symbol. */
 start with program;
 
-
 /*****  GRAMMAR RULES *****/
+/* An action code refers to a block of code that is executed when a specific production rule (grammar rule) is reduced.*/
+/* Action codes try to detrmines how to transform that part of into an appropriate AST NODE or how to handle errors */
+/* How to generate Action Codes Based on Requirements: 1. What the grammar rule does; 2. What the resulting AST node should be; 3. the relationship between the components of the rules*/
+/* For the binary expression: you need to recognize the operands on both sides, and the operator itself */
+/* IF statements involve both a condition and a body of statements to be executed when the condition is true*/
+/* When using the new xxx always need to explicit the start and the end of the statements */
 
 program ::= program_head:d opt_stmt_list:s
         {: RESULT = new Program(d.isEmpty() ? getLeft(s) : getLeft(d),
-                                getRight(s), d, s, errors);
+                                sxright, d, s, errors);
         :}
         ;
 
-/* Initial list of declarations. */
-program_head ::= /* not implemented; currently matches empty string */
-                                     {: RESULT = empty(); :}
-                ;
+/* Initial list of declarations (var, function, class). */
+program_head ::= decl:d                  {: RESULT = single(d); :}
+               | program_head:l decl:d   {: RESULT = combine(l, d); :}
 
-opt_stmt_list ::=                    {: RESULT = empty(); :}
-                | stmt_list:s        {: RESULT = s; :}
-                ;
-
-stmt_list ::= stmt:s                 {: RESULT = single(s); :}
-            | stmt_list:l stmt:s     {: RESULT = combine(l, s); :}
-            | stmt_list:l error      {: RESULT = l; :}
-            /* If there is a syntax error in the source, this says to discard
-             * symbols from the parsing stack and perform reductions until
-             * there is a stmt_list on top of the stack, and then to discard
-             * input symbols until it is possible to shift again, reporting
-             * a syntax error. */
-            ;
-
-stmt ::= expr_stmt:s NEWLINE {: RESULT = s; :}
-              ;
-
-expr_stmt ::= expr:e    {: RESULT = new ExprStmt(exleft, exright, e); :}
-            ;
-
-expr ::= binary_expr:e  {: RESULT = e; :}
-       | NUMBER:n       {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
+/* Declarations: variable, function, or class definitions */
+decl ::= var_def
+       | func_def
+       | class_def
        ;
 
+/* Statements */
+/* optional statements, either an empty one or a list of the statements*/
+opt_stmt_list ::=              {: RESULT = empty(); :}
+                | stml_list:s  {: RESULT = s; :}
+                ;
+
+
+/* Statement types: expression statemenst, if statemenst, while statemenst
+ In ChocoPy, a statement ends at the end of a line. */
+
+stmt ::= expr_stmt:s NEWLINE      {: RESULT = s; :}
+       | if_stmt:s NEWLINE        {: RESULT = s; :}
+       | while_stmt:s NEWLINE     {: RESULT = s; :}
+       | for_stmt:s NEWLINE       {: RESULT = s; :}
+       | return_stmt:s NEWLINE    {: RESULT = s; :}
+       ;
+
+
+stml_list ::= stmt:s              {: RESULT = single(s); :}  /* Single statement*/
+            | stml_list:l stmt:s  {: RESULT = combine(l, s); :} /*a list of statemenst*/
+            | stmt_list:l error   {: RESULT = l; :}
+            ;
+
+/* Expression: binary expressions and literals */
+expr ::= binary_expr:e  {: RESULT = e; :}
+       | NUMBER:n       {: RESULT = new IntegerLiteral(nxleft, nxright, n); :}
+       | string_literal {: RESULT = RESULT; :}
+       | identifier     {: RESULT = RESULT; :}
+       | list_expr:l    {: RESULT = l; :}
+       ;
+
+
+/* Expression statement */
+expr_stmt ::= expr:e                  {: RESULT = new ExprStmt(exleft, exright, e); :}
+            ;
+
+
+/* Grammar rule for expression list */
+expr_list ::= expr:e
+            {: RESULT = single(e); :}
+            | expr_list:el COMMA expr:e
+              {: RESULT = combine(el, e); :}
+            ;
+
+list_expr ::= LBRACKET expr_list:e RBRACKET
+            {: RESULT = new ListExpr(exleft, exright, e); :}
+            | LBRACKET RBRACKET
+            {: RESULT = new ListExpr(rxleft, rxright, empty()); :}
+
+/* ******************************************************************************************************* */
+
+node ::= string:s COLON list:l
+        {: RESULT = new Node(s, l) :}
+        ;
+
+type_annotation ::= node:n
+        {: RESULT = new TypeAnnotation(nxleft, nxright, n) :}
+        ;
+
+# what does list_type do?
+list_type ::= LBRACKET type_annotation:t RBRACKET
+        {: RESULT =  new ListType(txleft, txright, t) :}
+        ;
+
+/* The then is represented as stmt_list:s directly, and the ELSE will have another then stmt_lists:s2*/
+if_expr ::= IF LPAREN expr:e RPAREN COLON stmt_list:s
+          {: RESULT = new IfStmt(exleft, sxright, e, s);:}
+          | IF LPAREN expr:e RPAREN COLON stmt_list:s ELSE COLON stmt_lists:s2
+          {: RESULT = new IfStmt(exleft, s2right, e, s, s2);:}
+
+/*how do we use node?*/
+
+declaration ::= var_def | global_decl | nonlocal_decl
+
+var_def ::= identifier:i COLON expr:e
+           {: RESULT = new VarDef(ixleft, ixright, new TypedVar(i, e)); :}
+
+global_decl ::= GLOBAL expr:e
+        {: RESULT = new GlobalDecl(exleft, exright, e) :}
+        ;
+
+nonlocal_decl ::= NONLOCAL expr:e
+        {: RESULT = new NonLocalDecl(exleft, exright, e) :}
+        ;
+
+/*Do we define functions separately? Can they not just be identifiers?*/
+
+func_def ::= DEF IDENTIFIER:id LPAREN opt_param_list:params RPAREN COLON type_annotation:t stmt_list:s
+           {: RESULT = new FuncDef(ixleft, sxright, id, params, t, s); :}
+
+return_stmt ::= RETURN expr:e
+        {: RESULT = new ReturnStmt(RETURNxleft, exright, e); :}
+       | RETURN
+       {: RESULT = new ReturnStmt(RETURNxleft, RETURNxright, null); :}
+        ;
+
+#how do we grab the value?
+member_expr ::= expr:e DOT identifier:i
+        {: RESULT = new MemberExpr(exleft, exright, e); :}
+        ;
+
+#is this correct to return?
+while_stmt ::= WHILE expr:e COLON stmt_list:s
+        {: RESULT = new WhileStmt(exleft, sxright, e, s); :}
+        ;
+
+if_stmt ::= IF expr:e COLON stmt_list:thenBlock
+        {: RESULT = new IfStmt(exleft, thenBlockxright, e, thenBlock, empty()); :}
+       | IF expr:e COLON stmt_list:thenBlock ELSE COLON stmt_list:elseBlock
+        {: RESULT = new IfStmt(exleft, elseBlockxright, e, thenBlock, elseBlock); :}
+        ;
+
+
+for_stmt ::= FOR identifier:i IN expr:e COLON stmt_list:s
+        {: RESULT = new ForStmt(FORxleft, sxright, i, e, s); :}
+        ;
+
+identifier ::= IDENTIFIER:id
+        {: RESULT = new Identifier(idxleft, idxright, id.toString()); :}
+        ;
+
+/*how do we identify a class type?*/
+class_type ::= INT | OBJECT | STRING | SELF
+        {: RESULT = new ClassType(cxRight, cxLeft, c.name) :}
+        ;
+
+literal ::= | string_literal:s       {: RESULT = s; :}
+            | boolean_literal:b      {: RESULT = b; :}
+            | none_literal:n         {: RESULT = n; :}
+            | integer_literal:i      {: RESULT = i; :}
+            ;
+
+integer_literal ::= NUMBER:i
+                 {: RESULT = new IntegerLiteral(ixleft, ixright, i); :}
+
+string_literal ::= String:s          
+            {: RESULT = new StringLiteral(sxleft, sxright, s); :}
+            ;
+
+boolean_literal ::= boolean:b        
+            {: RESULT = new BooleanLiteral(bxleft, bxright, b); :}
+            ;
+
+none_literal ::= NONE:name          
+             {: RESULT = new NoneLiteral(nxleft, nxright, n); :}
+            ;
+
+operation ::= PLUS PLUS | MINUS MINUS | NOT
+            {: RESULT = null; :}
+
+unary_expr::= identifier:i operation:op SEMI 
+                {: RESULT = new UnaryExpr(ixleft, SEMIxright, i, op, SEMI) :}
+            | operation:op identifier:i
+                {: RESULT = new UnaryExpr(opxleft, ixright, op, i) :}
+            | MINUS identifier:i
+                {: RESULT = new UnaryExpr(MINUSxleft, ixright, MINUS, i) :}
+            ;
 
 /* A binary expression, illustrating how to find the left and right
  * source position of a phrase. */
 binary_expr ::= expr:e1 PLUS:op expr:e2
+                    {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 MINUS:op expr:e2
                         {: RESULT = new BinaryExpr(e1xleft, e2xright,
                                                    e1, op, e2); :}
+                    | expr:e1 TIMES:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 DIVIDE:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 MOD:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                    e1, op, e2); :}
+                    | expr:e1 EQUALS:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 EQEQ:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 NOTEQ:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 LT:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 LTEQ:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | expr:e1 GT:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                    e1, op, e2); :}
+                    | expr:e1 GTEQ:op expr:e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, op, e2); :}
+                    | LPAREN:e1 expr:e RPAREN::e2
+                        {: RESULT = new BinaryExpr(e1xleft, e2xright,
+                                                   e1, e, e2); :}
               ;
+   
